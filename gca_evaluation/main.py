@@ -100,6 +100,17 @@ parser.add_argument(
     default=1,
     help='Number of parallel workers (default: 1)'
 )
+parser.add_argument(
+    '--verbose',
+    action='store_true',
+    help='Enable verbose output to stdout'
+)
+parser.add_argument(
+    '--sample_ratio',
+    type=float,
+    default=1.0,
+    help='Ratio of test cases to run (randomly sampled), e.g., 0.1 for 10%'
+)
 
 # Parse arguments
 args = parser.parse_args()
@@ -140,10 +151,16 @@ def gca_simulation(test_file, actor_model, env_model, nsp_model, retrieval, nth_
     
     # Load test set
     test_dataset = json.load(open(test_file, 'r'))
+    if args.sample_ratio < 1.0:
+        sample_size = max(1, int(len(test_dataset) * args.sample_ratio))
+        logger.info(f"Sampling {sample_size} cases (random {args.sample_ratio*100}%) from {len(test_dataset)} total cases.")
+        test_dataset = random.sample(test_dataset, sample_size)
     results = []
 
     # Configure output path based on model and retrieval settings
     actor_setting = f'{actor_model}{"_rag=" + retrieval if retrieval else ""}'
+    if args.sample_ratio < 1.0:
+        actor_setting += f'_sample={args.sample_ratio}'
     simulation_path = f'exp/simulation/{test_file.split("/")[-1].replace(".json", "")}_{actor_setting}.json'
 
     logger.info(f'Conducting GCA Simulation for {actor_setting} on {test_file}\n\nThe results will be saved to {simulation_path}')
@@ -153,7 +170,7 @@ def gca_simulation(test_file, actor_model, env_model, nsp_model, retrieval, nth_
         return json.load(open(simulation_path, 'r'))
 
     # Traverse each test sample in the test dataset
-    for circumstance in test_dataset:
+    for circumstance in tqdm(test_dataset, desc="Simulation Progress"):
         # collect scenario metadata and context
         book_title = circumstance['book']
         plot = circumstance['plot']
@@ -376,6 +393,8 @@ def gca_judging(test_file, actor_model, retrieval, judge_model, nth_exp=0):
     
     # Configure paths based on model and retrieval settings
     actor_setting = f'{actor_model}{"_rag=" + retrieval if retrieval else ""}'
+    if args.sample_ratio < 1.0:
+        actor_setting += f'_sample={args.sample_ratio}'
     simulation_path = f'exp/simulation/{test_file.split("/")[-1].replace(".json", "")}_{actor_setting}.json'
     evaluation_path = simulation_path.replace('/simulation/', '/evaluation/')
 
@@ -395,7 +414,7 @@ def gca_judging(test_file, actor_model, retrieval, judge_model, nth_exp=0):
     cases = {}
 
     # Evaluate each simulation result
-    for result in simulation_results:
+    for result in tqdm(simulation_results, desc="Judging Progress"):
         book_title, i_p, i_c, circumstance, simulation = result['book_title'], result['i_p'], result['i_c'], result['circumstance'], result['simulation'] 
         
         # Verify indices match
@@ -518,7 +537,7 @@ if __name__ == "__main__":
         if args.continue_from > 0: exp_name += f'-continue_from={args.continue_from}'    
         if nth_exp > 0: exp_name += f'-repeat={nth_exp}'
         
-        logger = setup_logger(__name__, f'{__file__.split(".")[0]}-{exp_name}.log')
+        logger = setup_logger(__name__, f'{__file__.split(".")[0]}-{exp_name}.log', quiet=not args.verbose)
 
         # Initialize result storage
         all_cases = {} 

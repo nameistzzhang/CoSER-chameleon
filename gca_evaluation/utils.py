@@ -86,6 +86,8 @@ def cached(func):
 			result = func(*args, **kwargs)
 			if result != None:
 				cache[key] = result
+				if os.path.dirname(cache_path):
+					os.makedirs(os.path.dirname(cache_path), exist_ok=True)
 				pickle.dump(cache, open(cache_path, 'wb'))
 				#safe_pickle_dump(cache, cache_path)
 
