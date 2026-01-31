@@ -1,0 +1,14 @@
+# 忽略数据文件夹（最重要的部分，防止几百MB的JSON进仓库）
+data/train
+.cache/
+
+# 忽略评估产生的日志文件
+gca_evaluation/*.log
+
+# 忽略配置文件（如果你不想同步特定机器的配置）
+config.json
+
+# 忽略 Python 自动生成的缓存
+__pycache__/
+*.py[cod]
+*$py.class
