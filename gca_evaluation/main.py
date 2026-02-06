@@ -101,6 +101,16 @@ parser.add_argument(
     help='Number of parallel workers (default: 1)'
 )
 parser.add_argument(
+    "--exp_name",
+    required=True,
+    help="Name of the experiment (used for log file naming)"
+)
+parser.add_argument(
+    "--intervention",
+    action='store_true',
+    help="Enable chameleon intervene the profile of the roleplay agent"
+)
+parser.add_argument(
     '--verbose',
     action='store_true',
     help='Enable verbose output to stdout'
@@ -161,7 +171,7 @@ def gca_simulation(test_file, actor_model, env_model, nsp_model, retrieval, nth_
     actor_setting = f'{actor_model}{"_rag=" + retrieval if retrieval else ""}'
     if args.sample_ratio < 1.0:
         actor_setting += f'_sample={args.sample_ratio}'
-    simulation_path = f'exp/simulation/{test_file.split("/")[-1].replace(".json", "")}_{actor_setting}.json'
+    simulation_path = f'exp/simulation/{args.exp_name}.json'
 
     logger.info(f'Conducting GCA Simulation for {actor_setting} on {test_file}\n\nThe results will be saved to {simulation_path}')
 
@@ -288,6 +298,37 @@ def gca_simulation(test_file, actor_model, env_model, nsp_model, retrieval, nth_
             # Generate responses for current speaker and get next speaker prediction
             for actor in [current_speaker, "NSP"]:
                 current_agent = character_agents[actor]
+
+                # === Intervention Logic ===
+                if actor != "NSP" and actor != ENVIRONMENT and args.intervention:
+                    system_prompt = None
+                    for message in current_agent.messages:
+                        if message['role'] == 'system':
+                            system_prompt = message['content']
+                    if system_prompt and "Profile===" in system_prompt:
+                        profile = system_prompt.split("Profile===")[1].split("===")[0].strip()
+                    if system_prompt and "===Current Scenario===" in system_prompt:
+                        scenario = system_prompt.split("===Current Scenario===")[1].split("===")[0].strip()
+
+                    try:
+                        from chameleon import process_coser_intervention
+                        # Ensure profile and scenario are available before calling
+                        if 'profile' in locals() and 'scenario' in locals():
+                            new_profile, new_scenario = process_coser_intervention(profile, scenario, actor)
+                            
+                            system_prompt = system_prompt.replace(profile, new_profile, 1)
+                            system_prompt = system_prompt.replace(scenario, new_scenario, 1)
+                                
+                            # Update the agent's memory
+                            for message in current_agent.messages:
+                                if message['role'] == 'system':
+                                    message['content'] = system_prompt
+                                    break
+                    except Exception as e:
+                        print(f"[Intervention Not Implemented] {e}")
+                        pass
+                # ==========================
+
                 from utils import add_speaker_name
                 
                 # Use ground truth for early rounds if specified
@@ -395,7 +436,7 @@ def gca_judging(test_file, actor_model, retrieval, judge_model, nth_exp=0):
     actor_setting = f'{actor_model}{"_rag=" + retrieval if retrieval else ""}'
     if args.sample_ratio < 1.0:
         actor_setting += f'_sample={args.sample_ratio}'
-    simulation_path = f'exp/simulation/{test_file.split("/")[-1].replace(".json", "")}_{actor_setting}.json'
+    simulation_path = f'exp/simulation/{args.exp_name}.json'
     evaluation_path = simulation_path.replace('/simulation/', '/evaluation/')
 
     logger.info(f'Evaluating GCA Simulation for {actor_setting} on {test_file}\n\nThe results will be saved to {evaluation_path}')
@@ -516,6 +557,7 @@ def gca_judging(test_file, actor_model, retrieval, judge_model, nth_exp=0):
     logger.info(f'{actor_setting}: Average score of {len(simulation_results)} samples: \n{avg_scores["avg"]} {avg_scores} on {test_file}')
 
     # Save evaluation results
+    logger.info(f'Saving evaluation results to {evaluation_path}')
     os.makedirs(os.path.dirname(evaluation_path), exist_ok=True)
     with open(evaluation_path, 'w') as f:
         json.dump({'scores': avg_scores, 'cases': cases}, f, ensure_ascii=False, indent=2)
